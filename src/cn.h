@@ -243,7 +243,7 @@ inline void cn_drawChar(int x, int y, char c, uint16_t color, uint8_t size = 1) 
         idx = c - 'a';
         data = font8x16_lower[idx];
     } else {
-        screen_draw_char(x, y, c, color, size);
+        draw5x7Char(x, y, c, color, size);
         return;
     }
     if (data == NULL) return;
@@ -399,8 +399,67 @@ inline int chinesePunctToIndex(const char* p) {
     return -1;
 }
 
-// Draw mixed ASCII / CJK text (single entry point)
-inline void drawMixedText(int x, int y, const char* str, uint16_t color, uint8_t size = 1) {
+
+// Draw one 8x16 punctuation
+inline void draw8x16Punct(int x, int y, uint8_t idx, uint16_t color, uint8_t size = 1) {
+    uint16_t col = fixColor(color);
+    const unsigned char* data = font8x16_punct[idx];
+    for (int row = 0; row < 16; row++) {
+        for (int col_bit = 0; col_bit < 8; col_bit++) {
+            if (data[row] & (1 << (7 - col_bit))) {
+                for (int sx = 0; sx < size; sx++)
+                    for (int sy = 0; sy < size; sy++)
+                        tft.drawPixel(x + col_bit * size + sx, y + row * size + sy, col);
+            }
+        }
+    }
+}
+
+// Draw one 8x16 digit
+inline void draw8x16Digit(int x, int y, uint8_t digit, uint16_t color, uint8_t size = 1) {
+    if (digit > 9) return;
+    uint16_t col = fixColor(color);
+    const unsigned char* data = font8x16_digit[digit];
+    for (int row = 0; row < 16; row++) {
+        for (int col_bit = 0; col_bit < 8; col_bit++) {
+            if (data[row] & (1 << (7 - col_bit))) {
+                for (int sx = 0; sx < size; sx++)
+                    for (int sy = 0; sy < size; sy++)
+                        tft.drawPixel(x + col_bit * size + sx, y + row * size + sy, col);
+            }
+        }
+    }
+}
+
+// Draw one 8x16 letter (A-Z, a-z)
+inline void draw8x16Char(int x, int y, char c, uint16_t color, uint8_t size = 1) {
+    uint16_t col = fixColor(color);
+    const unsigned char* data = NULL;
+    
+    if (c >= 'A' && c <= 'Z') {
+        data = font8x16_upper[c - 'A'];
+    } else if (c >= 'a' && c <= 'z') {
+        data = font8x16_lower[c - 'a'];
+    } else {
+        // fallback to 5x7
+        draw5x7Char(x, y, c, color, size);
+        return;
+    }
+    
+    for (int row = 0; row < 16; row++) {
+        for (int col_bit = 0; col_bit < 8; col_bit++) {
+            if (data[row] & (1 << (7 - col_bit))) {
+                for (int sx = 0; sx < size; sx++)
+                    for (int sy = 0; sy < size; sy++)
+                        tft.drawPixel(x + col_bit * size + sx, y + row * size + sy, col);
+            }
+        }
+    }
+}
+
+// Mixed ASCII + CJK. Optional background color.
+inline void drawtext(int x, int y, const char* str, uint16_t color,
+                     uint8_t size = 1, uint16_t bgcolor = COLOR_BLACK) {
     int posX = x;
     const char* p = str;
     int charWidth = 8 * size;
@@ -412,73 +471,102 @@ inline void drawMixedText(int x, int y, const char* str, uint16_t color, uint8_t
         
         // digits
         if (c >= '0' && c <= '9') {
-            cn_drawDigit(posX, y, c - '0', color, size);
+            if (bgcolor != color) fillrect(posX, y, charWidth, 16 * size, bgcolor);
+            draw8x16Digit(posX, y, c - '0', color, size);
             posX += charWidth;
             p++;
-        } 
+        }
         // letters
         else if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')) {
-            cn_drawChar(posX, y, c, color, size);
+            if (bgcolor != color) fillrect(posX, y, charWidth, 16 * size, bgcolor);
+            draw8x16Char(posX, y, c, color, size);
             posX += charWidth;
             p++;
-        } 
+        }
         // ASCII punctuation
         else if (isEnglishPunct(c)) {
             int idx = englishPunctToFullIndex(c);
             if (idx >= 0 && idx < punctCount) {
-                drawPunctChar(posX, y, idx, color, size);
+                if (bgcolor != color) fillrect(posX, y, charWidth, 16 * size, bgcolor);
+                draw8x16Punct(posX, y, idx, color, size);
                 posX += charWidth;
             } else {
-                char buf[2] = {c, 0};
-                drawtext(posX, y, buf, color, size);
+                if (bgcolor != color) fillrect(posX, y, 6 * size, 16 * size, bgcolor);
+                draw5x7Char(posX, y, c, color, size);
                 posX += 6 * size;
             }
             p++;
-        } 
+        }
         // space
         else if (c == ' ') {
+            if (bgcolor != color) fillrect(posX, y, charWidth, 16 * size, bgcolor);
             posX += charWidth;
             p++;
-        } 
-        // other ASCII
+        }
+        // other ASCII -> 5x7 fallback
         else if (c < 0x80) {
-            char buf[2] = {c, 0};
-            drawtext(posX, y, buf, color, size);
+            if (bgcolor != color) fillrect(posX, y, 6 * size, 16 * size, bgcolor);
+            draw5x7Char(posX, y, c, color, size);
             posX += 6 * size;
             p++;
-        } 
-        // UTF-8 3-byte (CJK char or CJK punct)
+        }
+        // UTF-8 3-byte (CJK)
         else if (c >= 0xE0 && c <= 0xEF) {
             if (strlen(p) >= 3) {
                 if (isChinesePunct(p)) {
                     int idx = chinesePunctToIndex(p);
                     if (idx >= 0 && idx < punctCount) {
-                        drawPunctChar(posX, y, idx, color, size);
+                        if (bgcolor != color) fillrect(posX, y, chineseWidth, 16 * size, bgcolor);
+                        draw8x16Punct(posX, y, idx, color, size);
                         posX += charWidth;
                     } else {
                         char buf[4] = {p[0], p[1], p[2], 0};
+                        if (bgcolor != color) fillrect(posX, y, chineseWidth, 16 * size, bgcolor);
                         fontManager.drawString(posX, y, buf, color, size);
                         posX += chineseWidth;
                     }
                     p += 3;
                 } else {
-                    char chineseBuf[4] = {p[0], p[1], p[2], 0};
-                    fontManager.drawString(posX, y, chineseBuf, color, size);
+                    char buf[4] = {p[0], p[1], p[2], 0};
+                    if (bgcolor != color) fillrect(posX, y, chineseWidth, 16 * size, bgcolor);
+                    fontManager.drawString(posX, y, buf, color, size);
                     posX += chineseWidth;
                     p += 3;
                 }
-            } else {
-                break;
-            }
-        } 
-        else {
-            p++;
+            } else break;
         }
+        else p++;
+    }
+}
+
+// Pure 8x16 ASCII only (no CJK)
+inline void drawtext8x16(int x, int y, const char* str, uint16_t color,
+                         uint8_t size = 1, uint16_t bgcolor = COLOR_BLACK) {
+    int posX = x;
+    while (*str) {
+        unsigned char c = (unsigned char)*str;
+        if (c >= '0' && c <= '9') {
+            if (bgcolor != color) fillrect(posX, y, 8 * size, 16 * size, bgcolor);
+            draw8x16Digit(posX, y, c - '0', color, size);
+            posX += 8 * size;
+        } else if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')) {
+            if (bgcolor != color) fillrect(posX, y, 8 * size, 16 * size, bgcolor);
+            draw8x16Char(posX, y, c, color, size);
+            posX += 8 * size;
+        } else if (c == ' ') {
+            if (bgcolor != color) fillrect(posX, y, 8 * size, 16 * size, bgcolor);
+            posX += 8 * size;
+        } else {
+            if (bgcolor != color) fillrect(posX, y, 6 * size, 16 * size, bgcolor);
+            draw5x7Char(posX, y, c, color, size);
+            posX += 6 * size;
+        }
+        str++;
     }
 }
 
 // ============================================================
-// Internal font init
+// Init
 // ============================================================
 inline void initInternalFont() {
     fontManager.init((const InternalChar*)CHINESE_TABLE, CHINESE_COUNT);

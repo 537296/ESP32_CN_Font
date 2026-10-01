@@ -208,7 +208,7 @@ public:
             data = getSDASCIIChar(c);
         }
         if (!data) {
-            screen_draw_char(x, y, c, color, size);
+            draw5x7Char(x, y, c, color, size);
             return true;
         }
         

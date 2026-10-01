@@ -71,47 +71,39 @@ bool initSDCard() {
     return false;
 }
 
-// ============================================================
-// Main
-// ============================================================
 void setup() {
     Serial.begin(115200);
-    delay(100);
-    g_colorInvert = true; 
-    // 1. create mutex
-    sdMutex = xSemaphoreCreateMutex();
+    g_colorInvert = true;
     
-    // 2. init screen
+    sdMutex = xSemaphoreCreateMutex();
     setBacklight(200);
     tft.init();
     tft.setRotation(1);
     
-    // 3. init SD card
     initSDCard();
-    
-    // 4. init internal font
     initInternalFont();
-    
-    // 5. try load SD font
     fontManager.loadSDFont("/font/font.bin");
     
-    // 6. draw text
     fillscreen(COLOR_BLACK);
     
     int y = 20;
-    drawMixedText(20, y, "你好，世界！Hello World!", COLOR_WHITE, 2);
+    // 中英混合
+    drawtext(20, y, "你好，世界！Hello World!", COLOR_WHITE, 2, COLOR_ORANGE);
     y += 40;
-    drawMixedText(20, y, "这是 ESP32S3", COLOR_CYAN, 2);
+    drawtext(20, y, "《千恋*万花》是日本游戏公司YUZUSOFT于2012年发布的视觉小说。", COLOR_CYAN, 1, COLOR_DARKGRAY);
     y += 40;
-    drawMixedText(20, y, "ABCDEFG 1234567890", COLOR_YELLOW, 2);
+    // 纯 8x16
+    drawtext8x16(20, y, "ABCDEFG 1234567890", COLOR_YELLOW, 2, COLOR_ORANGE);
     y += 40;
-    drawMixedText(20, y, "Punct: , . ! ? : ; ( ) [ ]", COLOR_GREEN, 1);
+    // 混合标点
+    drawtext(20, y, "Punct: , . ! ? : ; ( ) [ ]", COLOR_GREEN, 1, COLOR_WHITE);
     y += 25;
-    drawMixedText(20, y, "Symbol: =+-*/%#@$~￥<>—…’‘”“》《＇＂", COLOR_ORANGE, 1);
+    drawtext(20, y, "Symbol: =+-*/%#@$~￥<>—…’‘”“》《＇＂", COLOR_ORANGE, 1);
+    // 纯 5x7
+    drawtext5x7(20, y + 25, "small 5x7 text", COLOR_WHITE, 1);
     
     Serial.println("Init done");
 }
-
 void loop() {
     delay(1000);
     yield();

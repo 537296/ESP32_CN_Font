@@ -125,7 +125,10 @@ static const unsigned char font5x7[96][5] = {
     {0x44,0x64,0x54,0x4C,0x44}  // 122 z
 };
 
-inline void screen_draw_char(int x, int y, char c, uint16_t color, uint8_t size) {
+// ------------------------------------------------------------
+// Low-level: draw one 5x7 char (single character only)
+// ------------------------------------------------------------
+inline void draw5x7Char(int x, int y, char c, uint16_t color, uint8_t size = 1) {
     if (c < 32 || c > 127) c = 32;
     c -= 32;
     uint16_t col = fixColor(color);
@@ -145,17 +148,23 @@ inline void screen_draw_char(int x, int y, char c, uint16_t color, uint8_t size)
     }
 }
 
-inline void drawtext(int x, int y, const char *str, uint16_t color, uint8_t size = 1) {
+// ------------------------------------------------------------
+// Mid-level: draw a pure 5x7 ASCII string
+// ------------------------------------------------------------
+inline void drawtext5x7(int x, int y, const char* str, uint16_t color, uint8_t size = 1) {
+    int posX = x;
     while (*str) {
-        screen_draw_char(x, y, *str, color, size);
-        x += 6 * size;
+        draw5x7Char(posX, y, *str, color, size);
+        posX += 6 * size;
         str++;
     }
 }
-
+// ------------------------------------------------------------
+// Screen primitives
+// ------------------------------------------------------------
 inline void screen_init(uint8_t rotation = 0) {
     tft.init();
-    tft.setRotation(0);
+    tft.setRotation(rotation);
     tft.fillScreen(fixColor(COLOR_BLACK));
 }
 
@@ -189,7 +198,6 @@ inline void drawpixel(int32_t x, int32_t y, uint16_t color) {
 }
 
 inline void settextsize(uint8_t size) {}
-
 
 extern bool touch_init(void);
 extern void touch_update(void);

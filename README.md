@@ -25,8 +25,8 @@ ESP32_CN_Font/
 │ ├── FontManager.h # 字库管理器
 │ └── screen.h # 屏幕基础函数 + 颜色定义
 ├── examples/
-│ └── BasicTest/
-│ └── BasicTest.ino # 示例程序
+│ └── test/
+│ └── test.ino # 示例程序
 ├── library.properties # Arduino 库元数据
 └── README.md
 
@@ -45,44 +45,110 @@ ESP32_CN_Font/
 ```
 #include <Arduino.h>
 #include <SD_MMC.h>
+#include <driver/ledc.h>
 #include "screen.h"
 #include "FontManager.h"
 #include "cn.h"
-3. 基本使用
-cpp
+
+// ============================================================
+// Pin config (user defined)
+// ============================================================
+#define SD_CLK    39
+#define SD_CMD    38
+#define SD_D0     40
+#define TFT_BL    10
+
+// ============================================================
+// Globals
+// ============================================================
 TFT_eSPI tft = TFT_eSPI();
+SemaphoreHandle_t sdMutex = NULL;
+bool g_colorInvert = true;
+// ============================================================
+// Backlight control
+// ============================================================
+void setBacklight(uint8_t brightness) {
+    #ifdef TFT_BL
+        ledc_timer_config_t timer_conf = {
+            .speed_mode = LEDC_LOW_SPEED_MODE,
+            .duty_resolution = LEDC_TIMER_8_BIT,
+            .timer_num = LEDC_TIMER_0,
+            .freq_hz = 5000,
+            .clk_cfg = LEDC_AUTO_CLK
+        };
+        ledc_timer_config(&timer_conf);
+        
+        ledc_channel_config_t channel_conf = {
+            .gpio_num = TFT_BL,
+            .speed_mode = LEDC_LOW_SPEED_MODE,
+            .channel = LEDC_CHANNEL_0,
+            .intr_type = LEDC_INTR_DISABLE,
+            .timer_sel = LEDC_TIMER_0,
+            .duty = brightness,
+            .hpoint = 0
+        };
+        ledc_channel_config(&channel_conf);
+    #endif
+}
+
+// ============================================================
+// Init SD card
+// ============================================================
+bool initSDCard() {
+    SD_MMC.setPins(SD_CLK, SD_CMD, SD_D0);
+    delay(100);
+    for (int attempt = 0; attempt < 3; attempt++) {
+        if (attempt > 0) {
+            delay(500);
+            SD_MMC.end();
+            delay(100);
+            SD_MMC.setPins(SD_CLK, SD_CMD, SD_D0);
+            delay(100);
+        }
+        if (SD_MMC.begin("/sdcard", true, false, 20000000)) {
+            return true;
+        }
+    }
+    return false;
+}
 
 void setup() {
-    Serial.begin(115200);
-
-    // 是否取反颜色
-    g_colorInvert = false;
-
+    g_colorInvert = true;
+    
+    sdMutex = xSemaphoreCreateMutex();
+    setBacklight(200);
     tft.init();
     tft.setRotation(1);
-
-    // 初始化内部字库
+    
+    initSDCard();
     initInternalFont();
-
-    // 可选：加载 SD 卡字库
     fontManager.loadSDFont("/font/font.bin");
-
-    // 绘制混合文本
-    fillscreen(COLOR_BLACK);
-    drawMixedText(20, 20, "你好，世界！Hello World!", COLOR_WHITE, 2);
-    drawMixedText(20, 60, "这是 ESP32S3", COLOR_CYAN, 2);
-    drawMixedText(20, 100, "ABCDEFG 1234567890", COLOR_YELLOW, 2);
+    drawtext(20, 20, "你好，世界！Hello World!", COLOR_WHITE, 2, COLOR_ORANGE);
 }
+void loop() {
+    delay(1000);
+    yield();
+}
+```
+### 3. 你的项目结构
+
+```
+
+ESP32_CN_Font/
+├─ cn.h # 中文字库 + 混合绘制入口
+├─ FontManager.h # 字库管理器
+├─ screen.h # 屏幕基础函数 + 颜色定义
+└─ test.ino # 示例程序
+
 ```
 主要 API
 函数	说明
 ```
 initInternalFont()	//注册内置中文字库
 fontManager.loadSDFont(path)	//从 SD 卡加载字库
-drawMixedText(x, y, str, color, size)	//绘制中英混合文本
-cn_drawChar(x, y, c, color, size)	//绘制 8x16 字母
-cn_drawDigit(x, y, d, color, size)	//绘制 8x16 数字
-drawPunctChar(x, y, idx, color, size)	//绘制 8x16 标点
+drawtext(x, y, str, color, size, bgcolor)	//绘制中英混合文本
+drawtext8x16(x, y, c, color, size, bgcolor)	
+drawtext5x7(x, y, d, color, size)	
 fixColor(color)	//根据开关返回颜色
 ```
 颜色反相开关
@@ -110,108 +176,176 @@ ASCII 区：从偏移 6 * 4096 * 32 开始，每字符 16 字节 (8x16)
 <a name="english"></a>
 # English
 
-A mixed Chinese/English text drawing library for ESP32 + TFT_eSPI. Supports built-in 8x16 ASCII fonts, built-in Chinese fallback characters, and optional SD card font loading.
+A mixed Chinese/English text display library for **ESP32 + TFT_eSPI**. It supports a built-in 8x16 ASCII font, built-in Chinese fallback characters, and optional external font loading from an SD card.
 
-Features
-Mixed text layout: draw Chinese, English, digits and punctuation with a single drawMixedText() call.
+## Features
 
-Built-in 8x16 ASCII font: digits, upper/lower case letters and punctuation included, no external file needed.
+- **Mixed Chinese/English layout**: a single `drawMixedText()` call can draw Chinese, English, digits, and punctuation together.
+- **Built-in 8x16 ASCII font**: digits, upper/lower case letters, and punctuation are all built in, no external file needed.
+- **Built-in Chinese fallback characters**: a few test characters (你、好、世、界、中、文) work out of the box.
+- **Optional SD card font loading**: supports loading a full font file from an SD card. The SD font is used with priority, and falls back to the internal font if not found.
+- **Full-width punctuation support**: ASCII punctuation can be automatically mapped to full-width punctuation, and native Chinese punctuation is also supported (《》""''…—￥ etc.).
+- **Color inversion switch**: a single global boolean controls whether colors are inverted, adapting to different display drivers.
 
-Built-in Chinese fallback chars: a few test characters (你、好、世、界、中、文) work out of the box.
+## Directory Structure
 
-Optional SD card font: load a full font file from SD card. SD font has priority, falls back to internal font if missing.
-
-Full-width punctuation: ASCII punctuation can be auto-mapped to full-width, plus native CJK punctuation (《》""''…—￥ etc.).
-
-Color invert switch: a single global bool controls color inversion, adapting to different display drivers.
-
-Directory Structure
 ```
 ESP32_CN_Font/
 ├── src/
-│   ├── cn.h              # Chinese font + mixed draw entry
-│   ├── FontManager.h     # Font manager
-│   └── screen.h          # Screen basics + colors
+│ ├── cn.h # Chinese font + mixed draw entry
+│ ├── FontManager.h # Font manager
+│ └── screen.h # Screen basics + color definitions
 ├── examples/
-│   └── BasicTest/
-│       └── BasicTest.ino # Example sketch
-├── library.properties    # Arduino library metadata
+│ └── test/
+│ └── test.ino # Example sketch
+├── library.properties # Arduino library metadata
 └── README.md
 ```
-Quick Start
-1. Dependencies
-ESP32 (Arduino core)
+## Quick Start
 
-TFT_eSPI
+### 1. Dependencies
 
-SD_MMC (ESP32 built-in)
+- ESP32 (Arduino core)
+- [TFT_eSPI](https://github.com/Bodmer/TFT_eSPI)
+- `SD_MMC` (ESP32 built-in)
 
-2. Include headers
+### 2. Include headers
 ```
 #include <Arduino.h>
 #include <SD_MMC.h>
+#include <driver/ledc.h>
 #include "screen.h"
 #include "FontManager.h"
 #include "cn.h"
-```
-3. Basic usage
-```
+
+// ============================================================
+// Pin config (user defined)
+// ============================================================
+#define SD_CLK 39
+#define SD_CMD 38
+#define SD_D0 40
+#define TFT_BL 10
+
+// ============================================================
+// Globals
+// ============================================================
 TFT_eSPI tft = TFT_eSPI();
+SemaphoreHandle_t sdMutex = NULL;
+bool g_colorInvert = true;
+
+// ============================================================
+// Backlight control
+// ============================================================
+void setBacklight(uint8_t brightness) {
+#ifdef TFT_BL
+ledc_timer_config_t timer_conf = {
+.speed_mode = LEDC_LOW_SPEED_MODE,
+.duty_resolution = LEDC_TIMER_8_BIT,
+.timer_num = LEDC_TIMER_0,
+.freq_hz = 5000,
+.clk_cfg = LEDC_AUTO_CLK
+};
+ledc_timer_config(&timer_conf);
+
+ledc_channel_config_t channel_conf = {
+.gpio_num = TFT_BL,
+.speed_mode = LEDC_LOW_SPEED_MODE,
+.channel = LEDC_CHANNEL_0,
+.intr_type = LEDC_INTR_DISABLE,
+.timer_sel = LEDC_TIMER_0,
+.duty = brightness,
+.hpoint = 0
+};
+ledc_channel_config(&channel_conf);
+#endif
+}
+
+// ============================================================
+// Init SD card
+// ============================================================
+bool initSDCard() {
+SD_MMC.setPins(SD_CLK, SD_CMD, SD_D0);
+delay(100);
+for (int attempt = 0; attempt < 3; attempt++) {
+if (attempt > 0) {
+delay(500);
+SD_MMC.end();
+delay(100);
+SD_MMC.setPins(SD_CLK, SD_CMD, SD_D0);
+delay(100);
+}
+if (SD_MMC.begin("/sdcard", true, false, 20000000)) {
+return true;
+}
+}
+return false;
+}
 
 void setup() {
-    Serial.begin(115200);
+g_colorInvert = true;
 
-    // whether to invert colors
-    g_colorInvert = false;
+sdMutex = xSemaphoreCreateMutex();
+setBacklight(200);
+tft.init();
+tft.setRotation(1);
 
-    tft.init();
-    tft.setRotation(1);
-
-    // init internal font
-    initInternalFont();
-
-    // optional: load SD font
-    fontManager.loadSDFont("/font/font.bin");
-
-    // draw mixed text
-    fillscreen(COLOR_BLACK);
-    drawMixedText(20, 20, "你好，世界！Hello World!", COLOR_WHITE, 2);
-    drawMixedText(20, 60, "这是 ESP32S3", COLOR_CYAN, 2);
-    drawMixedText(20, 100, "ABCDEFG 1234567890", COLOR_YELLOW, 2);
+initSDCard();
+initInternalFont();
+fontManager.loadSDFont("/font/font.bin");
+drawtext(20, 20, "你好，世界！Hello World!", COLOR_WHITE, 2, COLOR_ORANGE);
 }
-```
-Main API
-Function	Description
-```
-initInternalFont()	//register internal Chinese font
-fontManager.loadSDFont(path)	l//oad font from SD card
-drawMixedText(x, y, str, color, size)	//draw mixed CN/EN text
-cn_drawChar(x, y, c, color, size)	//draw 8x16 letter
-cn_drawDigit(x, y, d, color, size)	//draw 8x16 digit
-drawPunctChar(x, y, idx, color, size)	//draw 8x16 punctuation
-fixColor(color)	//color with optional invert
-```
-Color Invert Switch
-Change one line in setup():
+void loop() {
+delay(1000);
+yield();
+}
 
 ```
-g_colorInvert = false;   // false = no invert
-                         // true  = invert
+
+### 3. Your project structure
+
+```
+ESP32_CN_Font/
+├─ cn.h # Chinese font + mixed draw entry
+├─ FontManager.h # Font manager
+├─ screen.h # Screen basics + color definitions
+└─ test.ino # Example sketch
+
+```
+
+## Main API
+```
+
+| Function | Description |
+|----------|-------------|
+| `initInternalFont()` | Register the internal Chinese font |
+| `fontManager.loadSDFont(path)` | Load font from SD card |
+| `drawtext(x, y, str, color, size, bgcolor)` | Draw mixed Chinese/English text |
+| `drawtext8x16(x, y, c, color, size, bgcolor)` | Draw 8x16 ASCII text |
+| `drawtext5x7(x, y, d, color, size)` | Draw 5x7 ASCII text |
+| `fixColor(color)` | Return color according to the invert switch |
+```
+## Color Invert Switch
+
+Change one line in `setup()`:
+```
+g_colorInvert = false; // false = no invert
+// true = invert
 ```             
-SD Font Format
-Path: /font/font.bin
 
-CJK region: UTF-8 code points E4-E9, 32 bytes per char (16x16)
+## SD Font Format
 
-ASCII region: starts at offset 6 * 4096 * 32, 16 bytes per char (8x16)
+- Path: `/font/font.bin`
+- CJK region: UTF-8 code points `E4-E9`, 32 bytes per char (16x16)
+- ASCII region: starts at offset `6 * 4096 * 32`, 16 bytes per char (8x16)
 
-License
+## License
+
 This project is licensed under the [MIT License](LICENSE).
 
-Credits
-Display driver: TFT_eSPI
+## Credits
 
-Font data: self-made
+- Display driver: TFT_eSPI
+- Font data: self-made
 
 
 ---
