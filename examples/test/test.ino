@@ -93,7 +93,7 @@ void setup() {
     drawtext(20, y, "《千恋*万花》是日本游戏公司YUZUSOFT于2012年发布的视觉小说。", COLOR_CYAN, 1, COLOR_DARKGRAY);
     y += 40;
     // 纯 8x16
-    drawtext8x16(20, y, "ABCDEFG 1234567890", COLOR_YELLOW, 2, COLOR_ORANGE);
+    drawtext8x16(20, y, "ABCDEFG 1234567890", COLOR_YELLOW, 2, COLOR_GREEN);
     y += 40;
     // 混合标点
     drawtext(20, y, "Punct: , . ! ? : ; ( ) [ ]", COLOR_GREEN, 1, COLOR_WHITE);
